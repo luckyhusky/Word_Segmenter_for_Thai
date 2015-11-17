@@ -137,7 +137,6 @@ class CRF(object):
         decoded_sequence = range(len(sequence))
         num_labels = len(self.label_codebook)
         len_seq = len(sequence)
-        # viterbi_matrix = np.ones((len(sequence) + 1, num_labels))
         # back tracking the sequence
         decoded_sequence_track = np.zeros((len(sequence) + 1, num_labels))
         # set the index zero viterbi matrix to [1, 1].T
@@ -146,26 +145,15 @@ class CRF(object):
         viterbi_matrix = np.ones((num_labels, 1))
         viterbi_max = np.ones((num_labels, 1))
 
-        # # set the index one viterbi matrix to be the diagnal of the transition matrix M1
-        # for i in range(num_labels):
-        #     viterbi_matrix[1, i] = smooth(transition_matrices[1][i, i])
-
-        # for t in range(2, len_seq + 1):
-        #     # j is column number is transition matrix
-        #     for j in range(num_labels):
-        #         viterbi_matrix[t, j] = viterbi_matrix[t - 1, 0] + smooth(transition_matrices[t][0, j])
-        #         # i is row number is transition matrix, also in viterbi_matrix
-        #         for i in range(num_labels):
-        #             value = viterbi_matrix[t - 1, i] + smooth(transition_matrices[t][i, j])
-        #             if value > viterbi_matrix[t, j]:
-        #                 viterbi_matrix[t, j] = value
-        #                 decoded_sequence_track[t, j] = i
+        # set the index one viterbi matrix to be the diagnal of the transition matrix M1
         for i in range(num_labels):
             viterbi_matrix[i] = smooth(transition_matrices[1][i, i])
 
         for t in range(2, len_seq + 1):
+            # j is column number is transition matrix
             for j in range(num_labels):
                 viterbi_max[j] = viterbi_matrix[0] + smooth(transition_matrices[t][0, j])
+                # i is row number is transition matrix, also in viterbi_matrix
                 for i in range(num_labels):
                     value = viterbi_matrix[i] + smooth(transition_matrices[t][i, j])
                     if value > viterbi_max[j]:
@@ -174,7 +162,6 @@ class CRF(object):
             for row in range(num_labels):
                 viterbi_matrix[row] = viterbi_max[row]
                         
-        # max_row = np.argmax(viterbi_matrix[len_seq])
         max_row = np.argmax(viterbi_matrix)
         back_track = range(len_seq)
         back_track.reverse()
