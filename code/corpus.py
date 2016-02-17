@@ -147,6 +147,26 @@ class ThaiWordCorpus(Corpus):
     def featurize(self):
         self.label_codebook = {}
         self.feature_codebook = {}
+
+        # Change the label of sequence for BIIBI to BIEBI
+        # Add the end of the word into a new label E
+        # for sequence in self.documents:
+        #     for i in range(len(sequence.label) - 1):
+        #         if sequence.label[i] == "I" and sequence.label[i + 1] == "B":
+        #             sequence.label[i] = "E"
+        #             sequence[i].label = "E"
+
+        #     sequence.label[len(sequence.label) - 1] == "E"
+        #     sequence[len(sequence.label) - 1].label == "E"
+
+        # Detect the second of the word in a sequence with a new label S
+        # for sequence in self.documents:
+        #     for i in range(len(sequence.label)):
+        #         if sequence.label[i] == "I" and sequence.label[i - 1] == "B":
+        #             sequence.label[i] = "S"
+        #             sequence[i].label = "S"
+
+        # The original sequence lable 
         for sequence in self.documents:
             for t, document in enumerate(sequence):
                 features = document.sequence_features(t, sequence)

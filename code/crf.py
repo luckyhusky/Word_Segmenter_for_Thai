@@ -1,4 +1,7 @@
 import numpy as np
+import xlwt
+import csv
+
 
 class CRF(object):
 
@@ -15,7 +18,7 @@ class CRF(object):
 
         Feel free to adjust the hyperparameters (learning rate and batch sizes)
         """
-        self.train_sgd(training_set, dev_set, 0.005, 200)
+        self.train_sgd(training_set, dev_set, 0.001, 200)
 
     def train_sgd(self, training_set, dev_set, learning_rate, batch_size):
         """Minibatch SGF for training linear chain CRF
@@ -31,31 +34,35 @@ class CRF(object):
         total_expected_transition_count = np.zeros((num_labels, num_labels))
         print 'With all parameters = 0, the accuracy is %s' % \
                 sequence_accuracy(self, dev_set)
-        for i in range(10):
-            for j in range(num_batches):
-                batch = training_set[j*batch_size:(j+1)*batch_size]
-                total_expected_feature_count.fill(0)
-                total_expected_transition_count.fill(0)
-                total_observed_feature_count, total_observed_transition_count = self.compute_observed_count(batch)
+        # Write accuracy into excel 
+        with open('accuracy.csv', 'wb') as csvfile:
+            accuwriter = csv.writer(csvfile, delimiter = ' ',quotechar = '|', quoting = csv.QUOTE_MINIMAL)        
+            for i in range(5):
+                for j in range(num_batches):
+                    batch = training_set[ j * batch_size:( j + 1 ) * batch_size]
+                    total_expected_feature_count.fill(0)
+                    total_expected_transition_count.fill(0)
+                    total_observed_feature_count, total_observed_transition_count = self.compute_observed_count(batch)
 
-                for sequence in batch:
-                    transition_matrices = self.compute_transition_matrices(sequence)
-                    alpha_matrix = self.forward(sequence, transition_matrices)
-                    beta_matrix = self.backward(sequence, transition_matrices)
-                    expected_feature_count, expected_transition_count = \
-                            self.compute_expected_feature_count(sequence, alpha_matrix, beta_matrix, transition_matrices)
-                    total_expected_feature_count += expected_feature_count
-                    total_expected_transition_count += expected_transition_count
+                    for sequence in batch:
+                        transition_matrices = self.compute_transition_matrices(sequence)
+                        alpha_matrix = self.forward(sequence, transition_matrices)
+                        beta_matrix = self.backward(sequence, transition_matrices)
+                        expected_feature_count, expected_transition_count = \
+                                self.compute_expected_feature_count(sequence, alpha_matrix, beta_matrix, transition_matrices)
+                        total_expected_feature_count += expected_feature_count
+                        total_expected_transition_count += expected_transition_count
 
-                feature_gradient = (total_observed_feature_count - total_expected_feature_count) / len(batch)
-                transition_gradient = (total_observed_transition_count - total_expected_transition_count) / len(batch)
+                    feature_gradient = (total_observed_feature_count - total_expected_feature_count) / len(batch)
+                    transition_gradient = (total_observed_transition_count - total_expected_transition_count) / len(batch)
 
-                #t = i * num_batches + j
-                self.feature_parameters += learning_rate * feature_gradient
-                self.transition_parameters += learning_rate * transition_gradient
-                print sequence_accuracy(self, dev_set)
-
-
+                    #t = i * num_batches + j
+                    self.feature_parameters += learning_rate * feature_gradient
+                    self.transition_parameters += learning_rate * transition_gradient
+                    accu = sequence_accuracy(self, dev_set)
+                    accuwriter.writerow([accu])
+                    print accu
+        
     def compute_transition_matrices(self, sequence):
         """Compute transition matrices (denoted as M on the slides)
 
@@ -102,11 +109,14 @@ class CRF(object):
         """
         num_labels = len(self.label_codebook)
         alpha_matrix = np.zeros((num_labels, len(sequence) + 1))
-        for t in range(len(sequence) + 1):
-            if t == 0:
-                alpha_matrix[:, t] = np.array([1, 1]).T
-            else:
-                alpha_matrix[:, t] = np.dot(alpha_matrix[:, t - 1].T, transition_matrices[t]).T
+        # Initialize alpha matrix
+        alpha_matrix[:, 0] = 1
+        # Computing the alpha matrix                              
+        for t in range(1, len(sequence) + 1):
+            transition_matrix = transition_matrices[t]
+            for i in range(num_labels):
+                for j in range(num_labels):
+                    alpha_matrix[i, t] += np.exp(smooth(alpha_matrix[j, t-1]) + smooth(transition_matrix[j, i])) 
         return alpha_matrix
 
     def backward(self, sequence, transition_matrices):
@@ -116,14 +126,20 @@ class CRF(object):
         """
         num_labels = len(self.label_codebook)
         beta_matrix = np.zeros((num_labels, len(sequence) + 1))
-        time = range(len(sequence) + 1)
+
+        # Initialize beta matrix
+        beta_matrix[:, len(sequence)] = 1
+        time = range(len(sequence))
         time.reverse()
+        # Computing the beta matrix
         for t in time:
-            if t == len(sequence):
-                beta_matrix[:, t] = np.array([1, 1]).T
-            else:
-                beta_matrix[:, t] = np.dot(transition_matrices[t + 1], beta_matrix[:, t + 1])
+            transition_matrix = transition_matrices[t + 1]
+            for i in range(num_labels):
+                for j in range(num_labels):
+                    beta_matrix[i, t] += np.exp(smooth(beta_matrix[j, t + 1]) + smooth(transition_matrix[i, j]))
         return beta_matrix
+
+
 
     def decode(self, sequence):
         """Find the best label sequence from the feature sequence
@@ -139,8 +155,6 @@ class CRF(object):
         len_seq = len(sequence)
         # back tracking the sequence
         decoded_sequence_track = np.zeros((len(sequence) + 1, num_labels))
-        # set the index zero viterbi matrix to [1, 1].T
-        # viterbi_matrix[0, :] = 1
 
         viterbi_matrix = np.ones((num_labels, 1))
         viterbi_max = np.ones((num_labels, 1))
@@ -161,11 +175,13 @@ class CRF(object):
                         decoded_sequence_track[t, j] = i
             for row in range(num_labels):
                 viterbi_matrix[row] = viterbi_max[row]
-                        
+        
+        # Find the largest element's index                
         max_row = np.argmax(viterbi_matrix)
         back_track = range(len_seq)
         back_track.reverse()
 
+        # Back loop through the matrix to get the sequence
         for i in back_track:
             decoded_sequence[i] = max_row
             max_row = decoded_sequence_track[i + 1, max_row]
@@ -214,7 +230,7 @@ class CRF(object):
         sequence_length = len(sequence)
         Z = np.sum(alpha_matrix[:,-1])
 
-        #gamma = alpha_matrix * beta_matrix / Z 
+        # gamma = alpha_matrix * beta_matrix / Z 
         gamma = np.exp(np.log(alpha_matrix) + np.log(beta_matrix) - np.log(Z))
         for t in range(sequence_length):
             for j in range(num_labels):
@@ -222,10 +238,14 @@ class CRF(object):
 
         transition_count = np.zeros((num_labels, num_labels))
         for t in range(sequence_length - 1):
-            transition_count += (transition_matrices[t] * np.outer(alpha_matrix[:, t], beta_matrix[:,t+1])) / Z
+            transition_matrix = transition_matrices[t]
+            for i in range(num_labels):
+                for j in range(num_labels):
+                    transition_count[i, j] += np.exp(smooth(alpha_matrix[i, t-1]) + smooth(beta_matrix[j, t]) + smooth(transition_matrix[i, j]) - smooth(Z))
         return feature_count, transition_count
 
 def smooth(x):
+    # Avoid warning if log encouter 0 
     if x == 0:
         return -1e9
     else:
@@ -242,3 +262,12 @@ def sequence_accuracy(sequence_tagger, test_set):
             if instance.label_index == decoded[i]:
                 correct += 1
     return correct / total
+
+def save_accuracy(accuracy):
+    excel = xlwt.Workbook(encoding = "utf-8")
+    dev_sheet = excel.add_sheet("dev_sheet")
+    i = 0
+    for n in accuracy:
+        dev_sheet.write(i, 0, n)
+        i += 1
+    excel.save("dev_accuracy.xls")
